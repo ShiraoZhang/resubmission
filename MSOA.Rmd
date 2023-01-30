@@ -1,0 +1,98 @@
+```{r warning=FALSE}
+library(spatstat)
+library(here)
+library(sp)
+library(rgeos)
+library(maptools)
+library(GISTools)
+library(tmap)
+library(sf)
+library(geojson)
+library(geojsonio)
+library(tmaptools)
+```
+
+```{r}
+LondonMSOAs <- st_read(here::here("Middle_Layer_Super_Output_Areas__December_2011__EW_BGC_V2-shp", "Middle_Layer_Super_Output_Areas__December_2011__EW_BGC_V2.shp"))
+
+```
+
+```{r}
+library(stringr)
+MSOAMap <- LondonMSOAs %>%
+  dplyr::filter(str_detect(MSOA11CD, "^E02"))%>%
+  st_transform(., 27700)
+
+qtm(MSOAMap)
+```
+
+```{r}
+library(here)
+library(janitor)
+library(dplyr)
+
+MSOAData <- read.table(choose.files(),header = TRUE, sep = ",") #choose MSOA_data_residual.csv
+```
+
+#residual
+```{r}
+LondonMSOAs <- LondonMSOAs %>% 
+  left_join(MSOAData, 
+            by = c("MSOA11CD" = "MSOA11CD"))%>%
+  dplyr::distinct(MSOA11CD, .keep_all = T)%>%
+  dplyr::select(MSOA11CD, MSOA, residual)
+
+LondonMSOAs <- dplyr::filter(LondonMSOAs, !is.na(MSOA))
+```
+
+```{r}
+points_sf_joined <- LondonMSOAs
+points_sf_joined<- points_sf_joined %>%                    
+  group_by(MSOA11CD) %>%         
+  summarise(residual = first(residual),
+          MSOA= first(MSOA),
+          plaquecount= first(983))
+
+tm_shape(points_sf_joined) +
+    tm_polygons("residual",
+        style="jenks",
+        palette="PuOr",
+        midpoint=NA,
+        popup.vars=c("MSOA", "residual"),
+        title="House Price residual in London")
+```
+
+```{r}
+library(spdep)
+#First calculate the centroids of all MSOAs in London
+
+coordsW <- points_sf_joined%>%
+  st_centroid()%>%
+  st_geometry()
+```
+
+```{r}
+LMSOA_nb <- points_sf_joined %>%
+  poly2nb(., queen=T)
+```
+
+```{r}
+LMSOA.lw <- LMSOA_nb %>%
+  nb2mat(., style="B")
+
+sum(LMSOA.lw)
+```
+
+```{r}
+LMSOA.lw <- LMSOA_nb %>%
+  nb2listw(., style="C")
+```
+
+```{r}
+I_LMSOA_residual <- points_sf_joined %>%
+  pull(residual) %>%
+  as.vector()%>%
+  moran.test(., LMSOA.lw)
+
+I_LMSOA_residual
+```

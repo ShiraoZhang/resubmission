@@ -1,0 +1,96 @@
+```{r warning=FALSE}
+library(spatstat)
+library(here)
+library(sp)
+library(rgeos)
+library(maptools)
+library(GISTools)
+library(tmap)
+library(sf)
+library(geojson)
+library(geojsonio)
+library(tmaptools)
+```
+
+```{r}
+LondonBoroughs <- st_read(here::here("statistical-gis-boundaries-london", "ESRI", "London_Borough_Excluding_MHW.shp"))
+
+```
+
+```{r}
+library(stringr)
+BoroughMap <- LondonBoroughs %>%
+  dplyr::filter(str_detect(GSS_CODE, "^E09"))%>%
+  st_transform(., 27700)
+
+qtm(BoroughMap)
+```
+
+```{r}
+library(here)
+library(janitor)
+library(dplyr)
+
+BoroughData <- read.table(choose.files(),header = TRUE, sep = ",") #choose borough_data_residual.csv
+```
+
+#residual
+```{r}
+LondonBoroughs <- LondonBoroughs %>% 
+  left_join(BoroughData, 
+            by = c("GSS_CODE" = "GSS_CODE"))%>%
+  dplyr::distinct(GSS_CODE, .keep_all = T)%>%
+  dplyr::select(GSS_CODE, London_borough, residual)
+```
+
+```{r}
+points_sf_joined <- LondonBoroughs
+points_sf_joined<- points_sf_joined %>%                    
+  group_by(GSS_CODE) %>%         
+  summarise(residual = first(residual),
+          London_borough= first(London_borough),
+          plaquecount= first(33))
+
+tm_shape(points_sf_joined) +
+    tm_polygons("residual",
+        style="jenks",
+        palette="PuOr",
+        midpoint=NA,
+        popup.vars=c("London_borough", "residual"),
+        title="House Price residual in London (borough)")
+```
+
+```{r}
+library(spdep)
+#First calculate the centroids of all boroughs in London
+
+coordsW <- points_sf_joined%>%
+  st_centroid()%>%
+  st_geometry()
+```
+
+```{r}
+LBorough_nb <- points_sf_joined %>%
+  poly2nb(., queen=T)
+```
+
+```{r}
+Lborough.lw <- LBorough_nb %>%
+  nb2mat(., style="B")
+
+sum(Lborough.lw)
+```
+
+```{r}
+Lborough.lw <- LBorough_nb %>%
+  nb2listw(., style="C")
+```
+
+```{r}
+I_LBorough_residual <- points_sf_joined %>%
+  pull(residual) %>%
+  as.vector()%>%
+  moran.test(., Lborough.lw)
+
+I_LBorough_residual
+```
